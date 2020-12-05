@@ -1,0 +1,53 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        boost_version: [ 55, 60 ]
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: install dependencies
+      run: |
+         sudo apt install autopoint g++-5 libasound2-dev libass-dev libfftw3-dev libfribidi-dev libhunspell-dev libicu-dev luarocks yasm
+         sudo apt-get install -y -qq libffms2-dev libwxgtk3.0-dev libuchardet-dev
+         sudo pip install -U cpp-coveralls
+         sudo luarocks install busted > /dev/null
+         sudo luarocks install moonscript > /dev/null
+         sudo luarocks install uuid > /dev/null
+         git submodule --quiet init
+         git submodule --quiet update vendor/googletest
+         cd vendor
+         rm -rf boost
+         wget http://sourceforge.net/projects/boost/files/boost/1.${{ matrix.boost_version }}.0/boost_1_${{ matrix.boost_version }}_0.tar.bz2/download
+         tar xjf download
+         mv boost_1_${{ matrix.boost_version }}_0 boost
+         cd boost
+         ./bootstrap.sh
+         ./b2 -j3 -layout=system threading=multi cxxflags=-std=c++11 link=shared variant=release --without-python --without-iostreams --without-serialization --without-graph --without-log --without-math --without-signals --without-test --without-wave --without-mpi --without-program_options --without-graph_parallel --without-context --without-coroutine --without-random --without-timer --without-date_time
+         sudo ./b2 -layout=system threading=multi cxxflags=-std=c++11 link=shared variant=release --without-python --without-iostreams --without-serialization --without-graph --without-log --without-math --without-signals --without-test --without-wave --without-mpi --without-program_options --without-graph_parallel --without-context --without-coroutine --without-random --without-timer --without-date_time install
+         cd ../..
+
+    - name: exports
+      run: |
+        export CPATH=$(pwd)/vendor/boost
+        export LD_LIBRARY_PATH=vendor/boost/stage/lib:$LD_LIBRARY_PATH
+        export CPPFLAGS="-fprofile-arcs -ftest-coverage"
+        export LIBS="-lgcov"
+    - name: configure
+      run: ./configure BOOST_LDFLAGS="-L$(pwd)/vendor/boost/stage/lib" --enable-debug || cat config.log
+    - name: make
+      run: make -j3 all test
+    - name: make check
+      run: make check
+    - name: make distcheck
+      run: make distcheck
